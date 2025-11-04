@@ -17,6 +17,14 @@ pub struct Pool {
     pub ltv_bps: u16,
     pub liquidation_bonus_bps: u16,
     pub pool_bump: u8,
+    pub last_accrual_ts: u64,
+    pub borrow_index: u128,
+    pub borrow_rate_per_sec: u128,
+    //interest rate model params
+    pub base_rate: u128,
+    pub slope1: u128,
+    pub slope2: u128,
+    pub optimal_utilization: u128,
 }
 
 #[account]
@@ -45,4 +53,5 @@ pub struct UserPoolPosition {
     pub pool: Pubkey,
     pub deposited_amount: u64,
     pub borrowed_amount: u64,
+    pub user_borrow_index: u128,
 }

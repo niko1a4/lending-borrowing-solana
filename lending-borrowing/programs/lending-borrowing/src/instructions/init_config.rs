@@ -1,4 +1,4 @@
-use crate::state::Config;
+use crate::{event::InitConfigEvent, state::Config};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -24,6 +24,9 @@ impl<'info> InitConfig<'info> {
             paused: false,
             pool_count: 0,
             bump: bumps.config,
+        });
+        emit!(InitConfigEvent {
+            config: self.config.key(),
         });
         Ok(())
     }

@@ -8,4 +8,12 @@ pub enum Errors {
     MathOverflow,
     #[msg("Amount is zero")]
     AmountZero,
+    #[msg("Exceeds max borrowable amount")]
+    ExceedsLTV,
+    #[msg("Bad health factor")]
+    BadHealthFactor,
+    #[msg("Invalid amount")]
+    InvalidAmount,
+    #[msg("Insufficient liquidity")]
+    InsufficientLiquidity,
 }

@@ -1,5 +1,6 @@
 use crate::error::Errors;
 use crate::event::DepositEvent;
+use crate::helpers::interest::*;
 use crate::math::{calculate_borrowed_value_usd, calculate_health_factor};
 use crate::{
     math::{calculate_dtoken_mint_amount, normalize_pyth_price_to_usd_1e6},
@@ -29,12 +30,13 @@ pub struct Deposit<'info> {
     pub config: Account<'info, Config>,
     #[account(
         mut,
-        seeds= [b"pool", config.key().as_ref()],
+        seeds= [b"pool", config.key().as_ref(), underlying_mint.key().as_ref()],
         bump,
         has_one = oracle,
     )]
     pub pool: Account<'info, Pool>,
     #[account(
+        mut,
         associated_token::mint = pool.mint,
         associated_token::authority = config,
     )]
@@ -68,6 +70,7 @@ pub struct Deposit<'info> {
         space = 8 + UserPoolPosition::INIT_SPACE,
     )]
     pub user_pool_position: Account<'info, UserPoolPosition>,
+    #[account(address = pool.oracle)]
     pub oracle: Account<'info, PriceUpdateV2>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -76,6 +79,9 @@ pub struct Deposit<'info> {
 
 impl<'info> Deposit<'info> {
     pub fn deposit(&mut self, amount: u64) -> Result<()> {
+        accrue_interest(&mut self.pool)?;
+        update_user_borrow_state(&mut self.user_pool_position, &self.pool)?;
+        update_interest_rate(&mut self.pool)?;
         //assert amount is greater than zero
         require!(amount > 0, Errors::AmountZero);
         //trasnfer tokens to the vault
@@ -103,7 +109,13 @@ impl<'info> Deposit<'info> {
         };
         let program = self.token_program.to_account_info();
         let config_key = self.config.key();
-        let signer_seeds: &[&[&[u8]]] = &[&[b"pool", config_key.as_ref(), &[self.pool.pool_bump]]];
+        let underlying_mint_key = self.underlying_mint.key();
+        let signer_seeds: &[&[&[u8]]] = &[&[
+            b"pool",
+            config_key.as_ref(),
+            underlying_mint_key.as_ref(),
+            &[self.pool.pool_bump],
+        ]];
         let cpi_ctx = CpiContext::new_with_signer(program, accounts, signer_seeds);
         mint_to(cpi_ctx, mint_amount)?;
 
@@ -160,7 +172,7 @@ impl<'info> Deposit<'info> {
             self.user_position.user = self.user.key();
             self.user_position.health_factor = hf;
         }
-        //todo health factor update
+
         //update user_pool_position
         if self.user_pool_position.user == Pubkey::default() {
             self.user_pool_position.user = self.user.key();
@@ -184,6 +196,7 @@ impl<'info> Deposit<'info> {
             dtoken_minted: mint_amount,
             price_usd_1e6,
             collateral_value_usd: collateral_usd,
+            timestamp: Clock::get()?.unix_timestamp,
         });
         Ok(())
     }

@@ -39,10 +39,10 @@ pub fn normalize_pyth_price_to_usd_1e6(price: i64, expo: i32) -> Result<u64> {
     let mut value = price as i128;
     if expo < 0 {
         let scale = 10_i128.pow((-expo) as u32);
-        value = value / scale; // shift decimal left
+        value = value / scale; // divide by 10^expo
     } else if expo > 0 {
         let scale = 10_i128.pow(expo as u32);
-        value = value * scale; // shift decimal right
+        value = value * scale; // multiply by 10^expo
     }
 
     let scaled = value

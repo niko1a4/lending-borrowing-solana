@@ -9,7 +9,7 @@ import {
   mintTo,
 } from "@solana/spl-token";
 import { LendingBorrowing } from "../target/types/lending_borrowing";
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 
 describe("lending-borrowing", () => {
   const provider = anchor.AnchorProvider.env();
@@ -29,6 +29,7 @@ describe("lending-borrowing", () => {
   const LIQUIDATION_TRESHOLD_BPS: number = 8000;
   const LTV_BPS: number = 10000;
   const LIQUIDATION_BONUS_BPS: number = 1000;
+
   it("Initialize config", async () => {
     [configPda] = await PublicKey.findProgramAddressSync(
       [Buffer.from("config"), admin.publicKey.toBuffer()],
