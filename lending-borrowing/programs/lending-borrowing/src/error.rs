@@ -16,4 +16,14 @@ pub enum Errors {
     InvalidAmount,
     #[msg("Insufficient liquidity")]
     InsufficientLiquidity,
+    #[msg("User not liquidatable")]
+    NotLiquidatable,
+    #[msg("Nothing to liquidate")]
+    NothingToLiquidate,
+    #[msg("InsufficientCollateralToSeize")]
+    InsufficientCollateralToSeize,
+    #[msg("InvalidOraclePrice")]
+    InvalidOraclePrice,
+    #[msg("InvalidPrice")]
+    InvalidPrice,
 }

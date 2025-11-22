@@ -12,3 +12,7 @@ pub mod repay;
 pub use repay::*;
 pub mod liquidate;
 pub use liquidate::*;
+pub mod deposit_tokens;
+pub use deposit_tokens::*;
+pub mod update_deposit_position;
+pub use update_deposit_position::*;

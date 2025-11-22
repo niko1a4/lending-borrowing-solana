@@ -5,9 +5,13 @@
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.31.1",
+    "@coral-xyz/anchor": "^0.32.1",
+    "@pythnetwork/hermes-client": "^1.4.0",
+    "@pythnetwork/pyth-solana-receiver": "^0.13.0",
     "@solana/spl-token": "^0.4.14",
-    "@solana/web3.js": "^1.98.4"
+    "@solana/web3.js": "^1.98.4",
+    "@types/node": "^24.10.0",
+    "rpc-websockets": "^7.11.2"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.0",

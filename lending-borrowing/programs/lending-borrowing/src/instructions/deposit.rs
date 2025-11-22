@@ -12,6 +12,7 @@ use anchor_spl::{
     token::{mint_to, transfer, Mint, MintTo, Token, TokenAccount, Transfer},
 };
 use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
+
 #[derive(Accounts)]
 pub struct Deposit<'info> {
     #[account(mut)]
@@ -38,7 +39,7 @@ pub struct Deposit<'info> {
     #[account(
         mut,
         associated_token::mint = pool.mint,
-        associated_token::authority = config,
+        associated_token::authority = pool,
     )]
     pub vault: Account<'info, TokenAccount>,
     #[account(
@@ -82,62 +83,69 @@ impl<'info> Deposit<'info> {
         accrue_interest(&mut self.pool)?;
         update_user_borrow_state(&mut self.user_pool_position, &self.pool)?;
         update_interest_rate(&mut self.pool)?;
-        //assert amount is greater than zero
+
         require!(amount > 0, Errors::AmountZero);
-        //trasnfer tokens to the vault
-        let program = self.token_program.to_account_info();
-        let accounts = Transfer {
-            from: self.user_ata.to_account_info(),
-            to: self.vault.to_account_info(),
-            authority: self.user.to_account_info(),
+
+        // Do transfer inline
+        transfer(
+            CpiContext::new(
+                self.token_program.to_account_info(),
+                Transfer {
+                    from: self.user_ata.to_account_info(),
+                    to: self.vault.to_account_info(),
+                    authority: self.user.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+
+        // Calculate and mint inline
+        let mint_amount = {
+            let total_liquidity = self.pool.total_liquidity;
+            let total_dtoken_supply = self.pool.total_dtoken_supplied;
+            if total_dtoken_supply == 0 || total_liquidity == 0 {
+                amount
+            } else {
+                ((amount as u128) * (total_dtoken_supply as u128) / (total_liquidity as u128))
+                    as u64
+            }
         };
-        let cpi_ctx = CpiContext::new(program, accounts);
-        transfer(cpi_ctx, amount)?;
 
-        //mint dtokens to represent the share of pool user gets
-        let deposit_amount = amount;
-        let total_liquidity = self.pool.total_liquidity;
-        let total_dtoken_supply = self.pool.total_dtoken_supplied;
-        //calculate mint_amount
-        let mint_amount =
-            calculate_dtoken_mint_amount(deposit_amount, total_liquidity, total_dtoken_supply)?;
-        //mint tokens
-        let accounts = MintTo {
-            mint: self.dtoken_mint.to_account_info(),
-            to: self.user_dtoken_ata.to_account_info(),
-            authority: self.pool.to_account_info(),
+        // Mint inline
+        {
+            let config_key = self.config.key();
+            let mint_key = self.underlying_mint.key();
+            let bump = self.pool.pool_bump;
+
+            mint_to(
+                CpiContext::new_with_signer(
+                    self.token_program.to_account_info(),
+                    MintTo {
+                        mint: self.dtoken_mint.to_account_info(),
+                        to: self.user_dtoken_ata.to_account_info(),
+                        authority: self.pool.to_account_info(),
+                    },
+                    &[&[b"pool", config_key.as_ref(), mint_key.as_ref(), &[bump]]],
+                ),
+                mint_amount,
+            )?;
+        }
+
+        // Get price inline
+        let (price_usd_1e6, collateral_usd) = {
+            let p = self
+                .oracle
+                .get_price_no_older_than(&Clock::get()?, 30, &self.pool.feed_id)?;
+            let price_normalized = normalize_pyth_price_to_usd_1e6(p.price, p.exponent)?;
+            let collateral = calculate_borrowed_value_usd(
+                amount,
+                price_normalized,
+                self.underlying_mint.decimals,
+            )?;
+            (price_normalized, collateral)
         };
-        let program = self.token_program.to_account_info();
-        let config_key = self.config.key();
-        let underlying_mint_key = self.underlying_mint.key();
-        let signer_seeds: &[&[&[u8]]] = &[&[
-            b"pool",
-            config_key.as_ref(),
-            underlying_mint_key.as_ref(),
-            &[self.pool.pool_bump],
-        ]];
-        let cpi_ctx = CpiContext::new_with_signer(program, accounts, signer_seeds);
-        mint_to(cpi_ctx, mint_amount)?;
 
-        //oracle stuff
-        let price_update = &self.oracle;
-        let maximum_age: u64 = 30;
-        let feed_id: [u8; 32] = self.pool.feed_id;
-        let price = price_update.get_price_no_older_than(&Clock::get()?, maximum_age, &feed_id)?;
-        let price_usd_1e6 = normalize_pyth_price_to_usd_1e6(price.price, price.exponent)?;
-        //compute collateral value
-        let mint_decimals = self.underlying_mint.decimals;
-        let scale = 10u128.pow(mint_decimals as u32);
-        let collateral_usd_u128 = (amount as u128)
-            .checked_mul(price_usd_1e6 as u128)
-            .ok_or(Errors::MathOverflow)?
-            .checked_div(scale)
-            .ok_or(Errors::MathOverflow)?; // convert token units -> whole token, compute collateral value to usd
-
-        // result in USD * 1e6 precision
-        let collateral_usd = collateral_usd_u128 as u64;
-
-        //update state
+        // Update pool
         self.pool.total_liquidity = self
             .pool
             .total_liquidity
@@ -148,32 +156,31 @@ impl<'info> Deposit<'info> {
             .total_dtoken_supplied
             .checked_add(mint_amount)
             .ok_or(Errors::MathOverflow)?;
-        //calculate borrow amont
-        let borrowed_amount_usd =
-            calculate_borrowed_value_usd(amount, price_usd_1e6, mint_decimals)?;
-        //calculate health factor
-        let hf = calculate_health_factor(
-            collateral_usd,
-            borrowed_amount_usd,
-            self.pool.liquidation_treshold_bps.into(),
-        )?;
-        //update user_position
-        if self.user_position.user == Pubkey::default() {
+
+        // Update positions
+        let is_new_position = self.user_position.user == Pubkey::default();
+
+        if is_new_position {
             self.user_position.user = self.user.key();
             self.user_position.collateral_value_usd = collateral_usd;
             self.user_position.debt_value_usd = 0;
-            self.user_position.health_factor = hf;
+            self.user_position.health_factor = u64::MAX;
         } else {
-            self.user_position.collateral_value_usd = self
+            let new_collateral = self
                 .user_position
                 .collateral_value_usd
                 .checked_add(collateral_usd)
                 .ok_or(Errors::MathOverflow)?;
-            self.user_position.user = self.user.key();
+            let hf = calculate_health_factor(
+                new_collateral,
+                self.user_position.debt_value_usd,
+                self.pool.liquidation_treshold_bps.into(),
+            )?;
+            self.user_position.collateral_value_usd = new_collateral;
             self.user_position.health_factor = hf;
         }
 
-        //update user_pool_position
+        // Update pool position
         if self.user_pool_position.user == Pubkey::default() {
             self.user_pool_position.user = self.user.key();
             self.user_pool_position.pool = self.pool.key();
@@ -185,9 +192,8 @@ impl<'info> Deposit<'info> {
                 .deposited_amount
                 .checked_add(amount)
                 .ok_or(Errors::MathOverflow)?;
-            self.user_pool_position.user = self.user.key();
-            self.user_pool_position.pool = self.pool.key();
         }
+
         emit!(DepositEvent {
             user: self.user.key(),
             pool: self.pool.key(),
@@ -198,6 +204,7 @@ impl<'info> Deposit<'info> {
             collateral_value_usd: collateral_usd,
             timestamp: Clock::get()?.unix_timestamp,
         });
+
         Ok(())
     }
 }

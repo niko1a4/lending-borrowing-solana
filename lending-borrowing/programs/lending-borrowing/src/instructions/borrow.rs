@@ -4,13 +4,16 @@ use anchor_spl::{
     token::{transfer, Mint, Token, TokenAccount, Transfer},
 };
 
-use crate::{event::BorrowEvent, helpers::interest::*};
 use crate::state::*;
 use crate::{
     error::Errors,
     math::{calculate_health_factor, normalize_pyth_price_to_usd_1e6},
 };
-use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, Price, PriceUpdateV2};
+use crate::{event::BorrowEvent, helpers::interest::*};
+#[cfg(not(feature="test-mode"))]
+use pyth_solana_receiver_sdk::price_update::{ PriceUpdateV2};
+#[cfg(feature="test-mode")]
+use crate::state::config::MockOracle;
 #[derive(Accounts)]
 pub struct Borrow<'info> {
     #[account(mut)]
@@ -55,8 +58,16 @@ pub struct Borrow<'info> {
         associated_token::authority= pool,
     )]
     pub vault: Account<'info, TokenAccount>,
+    #[cfg(not(feature="test-mode"))]
     #[account(address = pool.oracle)]
     pub oracle: Account<'info, PriceUpdateV2>,
+    // Test mode:  mock oracle
+    #[cfg(feature = "test-mode")]
+    #[account(
+        seeds= [b"mock-oracle", config.key().as_ref()],
+        bump= oracle.bump,
+    )]
+    pub oracle: Account<'info, MockOracle>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
@@ -67,12 +78,20 @@ impl<'info> Borrow<'info> {
         update_user_borrow_state(&mut self.user_pool_position, &self.pool)?;
         update_interest_rate(&mut self.pool)?;
         //fetch oracle price and normalize to usd * 1e6
-        let price_update = &self.oracle;
-        let maximum_age: u64 = 30;
-        let feed_id: [u8; 32] = self.pool.feed_id;
-        let price = price_update.get_price_no_older_than(&Clock::get()?, maximum_age, &feed_id)?;
-        let price_usd_1e6 = normalize_pyth_price_to_usd_1e6(price.price, price.exponent)?;
-
+        #[cfg(not(feature="test-mode"))]
+         let price_usd_1e6 = {
+            let price_update = &self.oracle;
+            let maximum_age: u64 = 30;
+            let feed_id: [u8; 32] = self.pool.feed_id;
+            let price = price_update.get_price_no_older_than(&Clock::get()?, maximum_age, &feed_id)?;
+            normalize_pyth_price_to_usd_1e6(price.price, price.exponent)?
+        };
+        #[cfg(feature="test-mode")]
+        let price_usd_1e6={
+            let mock_oracle= &self.oracle;
+            normalize_pyth_price_to_usd_1e6(mock_oracle.price, mock_oracle.expo)?
+        };
+        
         //calculate amount user wants to borrow in usd
         let mint_decimals = self.underlying_mint.decimals;
         let scale = 10u128.pow(mint_decimals as u32);
@@ -137,7 +156,7 @@ impl<'info> Borrow<'info> {
         ]];
         let cpi_ctx = CpiContext::new_with_signer(program, accounts, signer_seeds);
         transfer(cpi_ctx, amount)?;
-        emit!(BorrowEvent{
+        emit!(BorrowEvent {
             user: self.user.key(),
             pool: self.pool.key(),
             mint: self.underlying_mint.key(),

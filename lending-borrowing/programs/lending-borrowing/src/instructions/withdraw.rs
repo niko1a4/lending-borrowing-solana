@@ -1,7 +1,9 @@
 use crate::{
-    error::Errors, event::WithdrawEvent, helpers::interest::*, math::{
-         calculate_health_factor, normalize_pyth_price_to_usd_1e6,
-    }, state::*
+    error::Errors,
+    event::WithdrawEvent,
+    helpers::interest::*,
+    math::{calculate_health_factor, normalize_pyth_price_to_usd_1e6},
+    state::*,
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{
@@ -148,13 +150,21 @@ impl<'info> Withdraw<'info> {
             .checked_div(scale)
             .ok_or(Errors::MathOverflow)? as u64;
         //simulate post-withdraw aggregates for HF
-        let new_total_collateral_usd = self.user_position.collateral_value_usd.checked_sub(delta_collateral_usd_1e6).ok_or(Errors::MathOverflow)?;
-        let borrow_usd_1e6= self.user_position.debt_value_usd;
-        let hf = calculate_health_factor(new_total_collateral_usd, borrow_usd_1e6, self.pool.liquidation_treshold_bps as u64)?;
-        require!(hf>= 10_000 , Errors::BadHealthFactor);
-        //user position update 
-        self.user_position.collateral_value_usd= new_total_collateral_usd;
-        emit!(WithdrawEvent{
+        let new_total_collateral_usd = self
+            .user_position
+            .collateral_value_usd
+            .checked_sub(delta_collateral_usd_1e6)
+            .ok_or(Errors::MathOverflow)?;
+        let borrow_usd_1e6 = self.user_position.debt_value_usd;
+        let hf = calculate_health_factor(
+            new_total_collateral_usd,
+            borrow_usd_1e6,
+            self.pool.liquidation_treshold_bps as u64,
+        )?;
+        require!(hf >= 10_000, Errors::BadHealthFactor);
+        //user position update
+        self.user_position.collateral_value_usd = new_total_collateral_usd;
+        emit!(WithdrawEvent {
             user: self.user.key(),
             pool: self.pool.key(),
             mint: self.mint.key(),

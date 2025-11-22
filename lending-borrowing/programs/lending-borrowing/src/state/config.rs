@@ -20,6 +20,7 @@ pub struct Pool {
     pub last_accrual_ts: u64,
     pub borrow_index: u128,
     pub borrow_rate_per_sec: u128,
+    pub close_factor_bps: u16,
     //interest rate model params
     pub base_rate: u128,
     pub slope1: u128,
@@ -54,4 +55,15 @@ pub struct UserPoolPosition {
     pub deposited_amount: u64,
     pub borrowed_amount: u64,
     pub user_borrow_index: u128,
+}
+
+#[cfg(feature = "test-mode")]
+#[account]
+#[derive(InitSpace)]
+pub struct MockOracle {
+    pub price: i64,
+    pub conf: u64,         //confidence interval
+    pub expo: i32,         //the exponent
+    pub publish_time: i64, //unix timestamop when price was published
+    pub bump: u8,
 }

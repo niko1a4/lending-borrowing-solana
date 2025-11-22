@@ -1,11 +1,13 @@
 use crate::error::Errors;
+use crate::event::CreatePoolEvent;
 use crate::state::{Config, Pool};
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token::{Mint, Token, TokenAccount},
 };
-
+#[cfg(feature="test-mode")]
+use crate::state::MockOracle;
 #[derive(Accounts)]
 pub struct CreatePool<'info> {
     #[account(mut)]
@@ -41,19 +43,26 @@ pub struct CreatePool<'info> {
         associated_token::authority = pool,
     )]
     pub vault: Account<'info, TokenAccount>,
+    #[cfg(feature="test-mode")]
+    #[account(
+        mut,
+        seeds= [b"mock-oracle", config.key().as_ref()],
+        bump= mock_oracle.bump,
+    )]
+    pub mock_oracle: Account<'info,MockOracle>,
     pub system_program: Program<'info, System>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Program<'info, Token>,
 }
 
 impl<'info> CreatePool<'info> {
+    #[cfg(feature = "test-mode")]
     pub fn create_pool(
         &mut self,
-        oracle: Pubkey,
-        feed_id: [u8; 32],
         liquidation_treshold_bps: u16,
         ltv_bps: u16,
         liquidation_bonus_bps: u16,
+        close_factor_bps: u16,
         base_rate: u128,
         slope1: u128,
         slope2: u128,
@@ -62,6 +71,10 @@ impl<'info> CreatePool<'info> {
     ) -> Result<()> {
         const ONE_E_18: u128 = 1_000_000_000_000_000_000;
         require_keys_eq!(self.admin.key(), self.config.admin.key(), Errors::NotAdmin);
+        
+        let oracle = self.mock_oracle.key();
+        let feed_id = [0u8; 32];
+        
         self.pool.set_inner(Pool {
             pool_id: self.config.pool_count,
             oracle,
@@ -80,12 +93,71 @@ impl<'info> CreatePool<'info> {
             last_accrual_ts: 0,
             borrow_index: ONE_E_18,
             borrow_rate_per_sec: ONE_E_18,
+            close_factor_bps,
             base_rate,
             slope1,
             slope2,
             optimal_utilization,
         });
+        
         self.config.pool_count += 1;
+        emit!(CreatePoolEvent {
+            pool: self.pool.key(),
+            mint: self.mint.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+        Ok(())
+    }
+    
+    #[cfg(not(feature = "test-mode"))]
+    pub fn create_pool(
+        &mut self,
+        oracle: Pubkey,
+        feed_id: [u8; 32],
+        liquidation_treshold_bps: u16,
+        ltv_bps: u16,
+        liquidation_bonus_bps: u16,
+        close_factor_bps: u16,
+        base_rate: u128,
+        slope1: u128,
+        slope2: u128,
+        optimal_utilization: u128,
+        bumps: &CreatePoolBumps,
+    ) -> Result<()> {
+        const ONE_E_18: u128 = 1_000_000_000_000_000_000;
+        require_keys_eq!(self.admin.key(), self.config.admin.key(), Errors::NotAdmin);
+        
+        self.pool.set_inner(Pool {
+            pool_id: self.config.pool_count,
+            oracle,
+            feed_id,
+            mint: self.mint.key(),
+            mint_dtoken: self.dtoken_mint.key(),
+            vault: self.vault.key(),
+            config: self.config.key(),
+            total_liquidity: 0,
+            total_borrowed: 0,
+            total_dtoken_supplied: 0,
+            liquidation_treshold_bps,
+            ltv_bps,
+            liquidation_bonus_bps,
+            pool_bump: bumps.pool,
+            last_accrual_ts: 0,
+            borrow_index: ONE_E_18,
+            borrow_rate_per_sec: ONE_E_18,
+            close_factor_bps,
+            base_rate,
+            slope1,
+            slope2,
+            optimal_utilization,
+        });
+        
+        self.config.pool_count += 1;
+        emit!(CreatePoolEvent {
+            pool: self.pool.key(),
+            mint: self.mint.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
         Ok(())
     }
 }

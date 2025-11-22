@@ -54,3 +54,13 @@ pub struct RepayEvent {
 pub struct InitConfigEvent {
     pub config: Pubkey,
 }
+
+#[event]
+pub struct LiquidateEvent {
+    pub liquidator: Pubkey,
+    pub borrower: Pubkey,
+    pub debt_repaid: u64,
+    pub collater_seized: u64,
+    pub debt_pool: Pubkey,
+    pub collateral_pool: Pubkey,
+}

@@ -35,22 +35,45 @@ pub fn calculate_dtoken_mint_amount(
 /// price = 123456789 expo = -6 -> returns 123_456_789
 ///
 pub fn normalize_pyth_price_to_usd_1e6(price: i64, expo: i32) -> Result<u64> {
-    //convert i64-> i128 for safe math
-    let mut value = price as i128;
-    if expo < 0 {
-        let scale = 10_i128.pow((-expo) as u32);
-        value = value / scale; // divide by 10^expo
-    } else if expo > 0 {
-        let scale = 10_i128.pow(expo as u32);
-        value = value * scale; // multiply by 10^expo
+    #[cfg(feature = "test-mode")]
+    {
+        return Ok(100_000_000); // 100$ with 1e6 precision
     }
 
-    let scaled = value
-        .checked_mul(1_000_000)
-        .ok_or_else(|| error!(Errors::MathOverflow))?;
+    #[cfg(not(feature = "test-mode"))]
+    {
+        // Sanity check: Pyth exponents are typically in range [-12, -6] for USD prices
+        require!(expo >= -20 && expo <= 20, Errors::InvalidOraclePrice);
+        require!(price > 0, Errors::InvalidPrice);
 
-    // Safe conversion to u64
-    Ok(scaled as u64)
+        let price_i128 = price as i128;
+        let target_exp = expo + 6; // We want price * 10^(expo + 6)
+
+        let result = if target_exp >= 0 {
+            // Need to multiply
+            if target_exp > 38 {
+                // Would overflow i128
+                return Err(error!(Errors::MathOverflow));
+            }
+            let scale = 10_i128.pow(target_exp as u32);
+            price_i128.checked_mul(scale).ok_or(Errors::MathOverflow)?
+        } else {
+            // Need to divide
+            let abs_exp = (-target_exp) as u32;
+            if abs_exp > 38 {
+                // Would underflow to near zero
+                return Err(error!(Errors::MathOverflow));
+            }
+            let scale = 10_i128.pow(abs_exp);
+            price_i128.checked_div(scale).ok_or(Errors::MathOverflow)?
+        };
+
+        // Ensure result is positive and fits in u64
+        require!(result > 0, Errors::InvalidPrice);
+        require!(result <= u64::MAX as i128, Errors::MathOverflow);
+
+        Ok(result as u64)
+    }
 }
 
 pub fn calculate_health_factor(
@@ -85,6 +108,9 @@ pub fn calculate_health_factor(
 /// # Returns
 /// * Borrowed value in USD (scaled to 1e6)
 pub fn calculate_borrowed_value_usd(amount: u64, price_usd_1e6: u64, decimals: u8) -> Result<u64> {
+    // Formula: (amount * price_usd_1e6) / 10^decimals
+    // Result is in USD with 1e6 precision (same as price_usd_1e6)
+
     let amount_u128 = amount as u128;
     let price_u128 = price_usd_1e6 as u128;
     let scale = 10u128.pow(decimals as u32);
