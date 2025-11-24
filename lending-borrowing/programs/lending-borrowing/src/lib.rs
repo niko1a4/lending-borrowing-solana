@@ -109,4 +109,13 @@ pub mod lending_borrowing {
         ctx.accounts.update_position(amount)?;
         Ok(())
     }
+    #[cfg(feature = "test-mode")]
+    pub fn update_mock_oracle(
+        ctx: Context<UpdateMockOracle>,
+        new_price: i64,
+        new_expo: i32,
+    ) -> Result<()> {
+        ctx.accounts.update_mock_oracle(new_price, new_expo)?;
+        Ok(())
+    }
 }

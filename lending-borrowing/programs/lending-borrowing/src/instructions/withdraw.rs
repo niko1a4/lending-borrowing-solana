@@ -10,7 +10,10 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token::{burn, transfer, Burn, Mint, Token, TokenAccount, Transfer},
 };
+#[cfg(not(feature="test-mode"))]
 use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
+#[cfg(feature="test-mode")]
+use crate::state::config::MockOracle;
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
@@ -18,9 +21,13 @@ pub struct Withdraw<'info> {
     pub user: Signer<'info>,
     #[account(address=pool.mint)]
     pub mint: Account<'info, Mint>,
-    #[account(address=pool.mint_dtoken)]
+    #[account(
+        mut,
+        address=pool.mint_dtoken
+    )]
     pub mint_dtoken: Account<'info, Mint>,
     #[account(
+        mut,
         seeds= [b"pool", config.key().as_ref(), mint.key().as_ref()],
         bump = pool.pool_bump,
     )]
@@ -60,8 +67,16 @@ pub struct Withdraw<'info> {
         bump,
     )]
     pub user_position: Account<'info, UserPosition>,
+    #[cfg(not(feature="test-mode"))]
     #[account(address = pool.oracle)]
     pub oracle: Account<'info, PriceUpdateV2>,
+    // Test mode:  mock oracle
+    #[cfg(feature = "test-mode")]
+    #[account(
+        seeds= [b"mock-oracle", config.key().as_ref()],
+        bump= oracle.bump,
+    )]
+    pub oracle: Account<'info, MockOracle>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -133,12 +148,21 @@ impl<'info> Withdraw<'info> {
             .checked_sub(underlying_amount)
             .ok_or(Errors::MathOverflow)?;
 
-        //check health factor
-        let price_update = &self.oracle;
-        let maximum_age: u64 = 30;
-        let feed_id: [u8; 32] = self.pool.feed_id;
-        let price = price_update.get_price_no_older_than(&Clock::get()?, maximum_age, &feed_id)?;
-        let price_usd_1e6 = normalize_pyth_price_to_usd_1e6(price.price, price.exponent)?;
+         //fetch oracle price and normalize to usd * 1e6
+        #[cfg(not(feature="test-mode"))]
+        let price_usd_1e6 = {
+            let price_update = &self.oracle;
+            let maximum_age: u64 = 30;
+            let feed_id: [u8; 32] = self.pool.feed_id;
+            let price = price_update.get_price_no_older_than(&Clock::get()?, maximum_age, &feed_id)?;
+            normalize_pyth_price_to_usd_1e6(price.price, price.exponent)?
+        };
+        
+        #[cfg(feature="test-mode")]
+        let price_usd_1e6 = {
+            let mock_oracle = &self.oracle;
+            normalize_pyth_price_to_usd_1e6(mock_oracle.price, mock_oracle.expo)?
+        };
 
         //compute collateral value
         let mint_decimals = self.mint.decimals;

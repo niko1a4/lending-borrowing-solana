@@ -35,12 +35,6 @@ pub fn calculate_dtoken_mint_amount(
 /// price = 123456789 expo = -6 -> returns 123_456_789
 ///
 pub fn normalize_pyth_price_to_usd_1e6(price: i64, expo: i32) -> Result<u64> {
-    #[cfg(feature = "test-mode")]
-    {
-        return Ok(100_000_000); // 100$ with 1e6 precision
-    }
-
-    #[cfg(not(feature = "test-mode"))]
     {
         // Sanity check: Pyth exponents are typically in range [-12, -6] for USD prices
         require!(expo >= -20 && expo <= 20, Errors::InvalidOraclePrice);

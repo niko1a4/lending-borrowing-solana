@@ -137,7 +137,7 @@ impl<'info> Borrow<'info> {
             new_total_debt,
             self.pool.liquidation_treshold_bps.into(),
         )?;
-        require!(hf > 1, Errors::BadHealthFactor);
+        require!(hf >= 1, Errors::BadHealthFactor);
 
         //transfer tokens to the user
         let program = self.token_program.to_account_info();

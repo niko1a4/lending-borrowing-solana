@@ -6,6 +6,7 @@ import {
   createMint,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccount,
+  getOrCreateAssociatedTokenAccount,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   mintTo,
@@ -55,7 +56,7 @@ describe("lending-borrowing", () => {
         systemProgram: SystemProgram.programId,
       })
       .rpc();
-    console.log("✅ Config initialized");
+    console.log(" Config initialized");
 
     // Fetch and verify accounts
     const configAccount = await program.account.config.fetch(configPda);
@@ -67,7 +68,7 @@ describe("lending-borrowing", () => {
     // Verify mock oracle
     assert.equal(mockOracleAccount.price.toString(), "10000000000");
     assert.equal(mockOracleAccount.expo, -8);
-    console.log("✅ Mock oracle verified");
+    console.log(" Mock oracle verified");
 
     // Create pool
     mintX = await createMint(provider.connection, admin.payer, admin.publicKey, null, 6);
@@ -81,7 +82,7 @@ describe("lending-borrowing", () => {
 
     await program.methods
       .createPool(
-        8000, 7000, 500, 5000,
+        7000, 8000, 500, 5000,
         new BN("10000000000000000"),
         new BN("50000000000000000"),
         new BN("200000000000000000"),
@@ -101,7 +102,7 @@ describe("lending-borrowing", () => {
       })
       .signers([dTokenMint])
       .rpc();
-    console.log("✅ Pool created");
+    console.log(" Pool created");
 
     // Create user ATA
     userAta = await createAssociatedTokenAccount(
@@ -110,7 +111,7 @@ describe("lending-borrowing", () => {
       mintX,
       admin.publicKey
     );
-    console.log("✅ User ATA created");
+    console.log(" User ATA created");
 
     //derive user position PDAs
     [userPoolPosition] = PublicKey.findProgramAddressSync(
@@ -131,7 +132,7 @@ describe("lending-borrowing", () => {
     const isAllZeros = feedIdArray.every(byte => byte === 0);
     assert.ok(isAllZeros);
 
-    console.log("✅ Pool configured correctly");
+    console.log(" Pool configured correctly");
   });
 
   it("deposits tokens and updates position", async () => {
@@ -146,7 +147,7 @@ describe("lending-borrowing", () => {
       admin.payer,
       depositAmount.toNumber()
     );
-    console.log("✅ Minted tokens");
+    console.log(" Minted tokens");
 
     // Derive PDAs
     const userDTokenAta = getAssociatedTokenAddressSync(dTokenMint.publicKey, admin.publicKey);
@@ -177,7 +178,7 @@ describe("lending-borrowing", () => {
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       })
       .rpc();
-    console.log("✅ Tokens deposited");
+    console.log(" Tokens deposited");
 
     // Update position
     await program.methods
@@ -193,7 +194,7 @@ describe("lending-borrowing", () => {
         systemProgram: SystemProgram.programId,
       })
       .rpc();
-    console.log("✅ Position updated");
+    console.log(" Position updated");
 
     // Verify
     const userPositionAccount = await program.account.userPosition.fetch(userPosition);
@@ -355,7 +356,7 @@ describe("lending-borrowing", () => {
 
     // estimate interest accrual (approximate)
     // new_borrow_index = old_index * (1 + rate * time_elapsed)
-    console.log("\n=== Testing Repayment with Interest Accrual ===");
+    console.log("\nTESTING REPAYMENT WITH INTEREST ACCRUAL");
 
     // mint enough tokens to user for full repayment
     const tokensNeeded = userPoolPositionBefore.borrowedAmount.toNumber() * 1.5; //1.5 because of interest rate
@@ -400,7 +401,7 @@ describe("lending-borrowing", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .rpc();
-    console.log("✅ Repayment executed");
+    console.log(" Repayment executed");
 
     // Get state after repayment
     const userAtaAfterRepay = await getAccount(provider.connection, userAta);
@@ -564,5 +565,444 @@ describe("lending-borrowing", () => {
 
     console.log("\n Interest accrual and repayment test done");
 
+  });
+  it("withdrawscollateral after debt is cleared", async () => {
+    console.log("\n TESTING WITHDRAWAL");
+    //get initial state
+    const poolBefore = await program.account.pool.fetch(poolPda);
+    const userPoolPositionBefore = await program.account.userPoolPosition.fetch(userPoolPosition);
+    const userPositionBefore = await program.account.userPosition.fetch(userPosition);
+    const userDTokenAta = getAssociatedTokenAddressSync(dTokenMint.publicKey, admin.publicKey);
+    const userDTokenBefore = await getAccount(provider.connection, userDTokenAta);
+    const userAtaBefore = await getAccount(provider.connection, userAta);
+    const vaultBefore = await getAccount(provider.connection, vaultAta);
+
+    console.log("Initial state before withdrawal:");
+    console.log("  User deposited amount:", userPoolPositionBefore.depositedAmount.toString());
+    console.log("  User borrowed amount:", userPoolPositionBefore.borrowedAmount.toString());
+    console.log("  User collateral value USD:", userPositionBefore.collateralValueUsd.toString());
+    console.log("  User debt value USD:", userPositionBefore.debtValueUsd.toString());
+    console.log("  User dToken balance:", userDTokenBefore.amount.toString());
+    console.log("  User token ATA balance:", userAtaBefore.amount.toString());
+    console.log("  Pool total liquidity:", poolBefore.totalLiquidity.toString());
+    console.log("  Pool total dToken supplied:", poolBefore.totalDtokenSupplied.toString());
+    console.log("  Vault balance:", vaultBefore.amount.toString());
+
+    //verify user has no debt (it should b e 0 from previous test)
+    assert.equal(
+      userPoolPositionBefore.borrowedAmount.toNumber(),
+      0,
+      "User should have no debt before withdrawal"
+    );
+
+    //calculate how much dTokens can user withdraw
+    const depositedAmount = userPoolPositionBefore.depositedAmount.toNumber();
+    const totalLiquidity = poolBefore.totalLiquidity.toNumber();
+    const totalDTokenSupplied = poolBefore.totalDtokenSupplied.toNumber();
+
+    //calculate dToken amount for 500 underlying tokens
+    //dtoken_amount = (underlying_amount * total_dtoken_supplied)/total_liquidity
+    const underlyingToWithdraw = 500_000_000; //500 tokens
+    const dTokenToWithdraw = Math.floor((underlyingToWithdraw * totalDTokenSupplied) / totalLiquidity);
+
+    console.log("\nWithdrawal calculation:");
+    console.log("  Underlying tokens to withdraw:", underlyingToWithdraw);
+    console.log("  DTokens to burn:", dTokenToWithdraw);
+    console.log("  Exchange rate: 1 dToken =", (totalLiquidity / totalDTokenSupplied).toFixed(6), "underlying");
+
+    const withdrawDTokenAmount = new BN(dTokenToWithdraw);
+
+    //withdraw
+    await program.methods
+      .withdraw(withdrawDTokenAmount)
+      .accounts({
+        user: admin.publicKey,
+        mint: mintX,
+        mintDtoken: dTokenMint.publicKey,
+        pool: poolPda,
+        config: configPda,
+        vault: vaultAta,
+        userDtokenAta: userDTokenAta,
+        userTokenAta: userAta,
+        userPoolPosition: userPoolPosition,
+        userPosition: userPosition,
+        oracle: mockOracle,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+    console.log("Withdrawal executed");
+
+    // get state after withdrawal
+    const poolAfter = await program.account.pool.fetch(poolPda);
+    const userPoolPositionAfter = await program.account.userPoolPosition.fetch(userPoolPosition);
+    const userPositionAfter = await program.account.userPosition.fetch(userPosition);
+    const userDTokenAfter = await getAccount(provider.connection, userDTokenAta);
+    const userAtaAfter = await getAccount(provider.connection, userAta);
+    const vaultAfter = await getAccount(provider.connection, vaultAta);
+
+    console.log("\nAfter withdrawal:");
+    console.log("  User deposited amount:", userPoolPositionAfter.depositedAmount.toString());
+    console.log("  User collateral value USD:", userPositionAfter.collateralValueUsd.toString());
+    console.log("  User dToken balance:", userDTokenAfter.amount.toString());
+    console.log("  User token ATA balance:", userAtaAfter.amount.toString());
+    console.log("  Pool total liquidity:", poolAfter.totalLiquidity.toString());
+    console.log("  Pool total dToken supplied:", poolAfter.totalDtokenSupplied.toString());
+    console.log("  Vault balance:", vaultAfter.amount.toString());
+
+    //calculate token movements
+    const dTokensBurned = BigInt(userDTokenBefore.amount.toString()) -
+      BigInt(userDTokenAfter.amount.toString());
+    const tokensReceived = BigInt(userAtaAfter.amount.toString()) -
+      BigInt(userAtaBefore.amount.toString());
+    const vaultDecrease = BigInt(vaultBefore.amount.toString()) -
+      BigInt(vaultAfter.amount.toString());
+
+    console.log("\nToken movements:");
+    console.log("  DTokens burned:", dTokensBurned.toString());
+    console.log("  Underlying tokens received:", tokensReceived.toString());
+    console.log("  Vault decrease:", vaultDecrease.toString());
+
+    assert.equal(
+      dTokensBurned.toString(),
+      withdrawDTokenAmount.toString(),
+      "DTokens burned should match withdrawal amount"
+    );
+
+    assert.equal(
+      tokensReceived.toString(),
+      vaultDecrease.toString(),
+      "Tokens received should equal vault decrease"
+    );
+    assert.ok(
+      Math.abs(Number(tokensReceived) - underlyingToWithdraw) <= 1,
+      "Underlying tokens received should match expected amount (with rounding tolerance)"
+    );
+    const liquidityDecrease = poolBefore.totalLiquidity.toNumber() -
+      poolAfter.totalLiquidity.toNumber();
+    const dTokenSupplyDecrease = poolBefore.totalDtokenSupplied.toNumber() -
+      poolAfter.totalDtokenSupplied.toNumber();
+
+    console.log("\nPool state changes:");
+    console.log("  Total liquidity decreased by:", liquidityDecrease);
+    console.log("  Total dToken supply decreased by:", dTokenSupplyDecrease);
+
+    assert.equal(
+      liquidityDecrease,
+      Number(tokensReceived),
+      "Pool liquidity should decrease by withdrawn amount"
+    );
+
+    assert.equal(
+      dTokenSupplyDecrease,
+      Number(dTokensBurned),
+      "Pool dToken supply should decrease by burned amount"
+    );
+
+    const depositDecrease = userPoolPositionBefore.depositedAmount.toNumber() -
+      userPoolPositionAfter.depositedAmount.toNumber();
+
+    console.log("\nUser position changes:");
+    console.log("  Deposited amount decreased by:", depositDecrease);
+
+    assert.equal(
+      depositDecrease,
+      Number(tokensReceived),
+      "User deposited amount should decrease by withdrawn amount"
+    );
+    const collateralDecrease = userPositionBefore.collateralValueUsd.toNumber() -
+      userPositionAfter.collateralValueUsd.toNumber();
+
+    // Expected collateral decrease: 500 tokens * $100 = $50k (in 1e6 format = 50_000_000_000)
+    const expectedCollateralDecrease = 50_000_000_000;
+
+    console.log("  Collateral value USD decreased by:", collateralDecrease);
+    console.log("  Expected decrease:", expectedCollateralDecrease);
+
+    const tolerance = 1000;
+    assert.ok(
+      Math.abs(collateralDecrease - expectedCollateralDecrease) <= tolerance,
+      `Collateral value should decrease correctly (within tolerance). Expected: ${expectedCollateralDecrease}, Got: ${collateralDecrease}, Diff: ${Math.abs(collateralDecrease - expectedCollateralDecrease)}`
+    );
+
+    console.log("\n All withdrawal checks passed");
+  });
+  it("liquidates unhealthy position after price crash", async () => {
+    console.log("\nTESTING LIQUIDATION ");
+
+    // create a new borrower
+    console.log("\n Creating new borrower ");
+
+    const borrower = Keypair.generate();
+
+    // airdrop SOL to borrower
+    const airdropSig = await provider.connection.requestAirdrop(
+      borrower.publicKey,
+      2 * anchor.web3.LAMPORTS_PER_SOL
+    );
+    await provider.connection.confirmTransaction(airdropSig);
+
+    // create borrowers token account
+    const borrowerAta = await createAssociatedTokenAccount(
+      provider.connection,
+      borrower,
+      mintX,
+      borrower.publicKey
+    );
+
+    // derive borrowrs PDAs
+    const [borrowerPoolPosition] = PublicKey.findProgramAddressSync(
+      [Buffer.from("user-pool-position"), borrower.publicKey.toBuffer(), poolPda.toBuffer()],
+      program.programId
+    );
+
+    const [borrowerPosition] = PublicKey.findProgramAddressSync(
+      [Buffer.from("user-position"), borrower.publicKey.toBuffer()],
+      program.programId
+    );
+
+    const borrowerDTokenAta = getAssociatedTokenAddressSync(dTokenMint.publicKey, borrower.publicKey);
+
+    console.log(" New borrower created:", borrower.publicKey.toBase58());
+
+    // borrwoer position collateral
+    const depositAmount = new BN(1_000_000_000); // 1000 tokens
+
+    // mint tokens to borrower
+    await mintTo(
+      provider.connection,
+      admin.payer,
+      mintX,
+      borrowerAta,
+      admin.payer,
+      depositAmount.toNumber()
+    );
+
+    // deposit
+    await program.methods
+      .depositTokens(depositAmount)
+      .accounts({
+        user: borrower.publicKey,
+        underlyingMint: mintX,
+        dtokenMint: dTokenMint.publicKey,
+        config: configPda,
+        pool: poolPda,
+        vault: vaultAta,
+        userAta: borrowerAta,
+        userDtokenAta: borrowerDTokenAta,
+        userPoolPosition: borrowerPoolPosition,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      })
+      .signers([borrower])
+      .rpc();
+
+    // update position
+    await program.methods
+      .updateDepositPosition(depositAmount)
+      .accounts({
+        user: borrower.publicKey,
+        underlyingMint: mintX,
+        config: configPda,
+        pool: poolPda,
+        userPosition: borrowerPosition,
+        userPoolPosition: borrowerPoolPosition,
+        oracle: mockOracle,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([borrower])
+      .rpc();
+
+    console.log(" Borrower deposited 1000 tokens ($100,000 at $100/token)");
+
+    // borrower borrows close to ltv limit
+    const borrowAmount = new BN(600_000_000); // 600 tokens = $60,000 (60% of $100k)
+
+    await program.methods
+      .borrow(borrowAmount)
+      .accounts({
+        user: borrower.publicKey,
+        underlyingMint: mintX,
+        pool: poolPda,
+        config: configPda,
+        userAta: borrowerAta,
+        userPoolPosition: borrowerPoolPosition,
+        userPosition: borrowerPosition,
+        vault: vaultAta,
+        oracle: mockOracle,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([borrower])
+      .rpc();
+
+    console.log(" Borrower borrowed 700 tokens ($70,000)");
+
+    // Check initial state
+    const borrowerPositionBefore = await program.account.userPosition.fetch(borrowerPosition);
+    const borrowerPoolPositionBefore = await program.account.userPoolPosition.fetch(borrowerPoolPosition);
+    const poolBefore = await program.account.pool.fetch(poolPda);
+
+    console.log("\nInitial position (at $100 per token):");
+    console.log("  Collateral value USD:", borrowerPositionBefore.collateralValueUsd.toString());
+    console.log("  Debt value USD:", borrowerPositionBefore.debtValueUsd.toString());
+    console.log("  Borrowed amount (tokens):", borrowerPoolPositionBefore.borrowedAmount.toString());
+    console.log("  Deposited amount (tokens):", borrowerPoolPositionBefore.depositedAmount.toString());
+    console.log("  Liquidation threshold:", poolBefore.liquidationTresholdBps, "bps");
+
+    // calculate initial HF
+    const initialHF = (Number(borrowerPositionBefore.collateralValueUsd) *
+      poolBefore.liquidationTresholdBps) /
+      (Number(borrowerPositionBefore.debtValueUsd) * 10000);
+    console.log("  Initial health factor:", initialHF.toFixed(4));
+
+    // crash the price!
+    console.log("\n-> Crashing token price ");
+
+    const oldPrice = new BN("10000000000"); // $100
+    const newPrice = new BN("4000000000");   // $40 (60% crash)
+
+    await program.methods
+      .updateMockOracle(newPrice, -8)
+      .accounts({
+        admin: admin.publicKey,
+        mockOracle: mockOracle,
+        config: configPda,
+      })
+      .rpc();
+
+    console.log(" Price updated: $100 → $40");
+
+    // verify oracle
+    const mockOracleAfterUpdate = await program.account.mockOracle.fetch(mockOracle);
+    assert.equal(mockOracleAfterUpdate.price.toString(), newPrice.toString());
+
+    // calculate expected HF after crash
+    console.log("\nExpected state after price crash:");
+    console.log("  NEW Collateral value: 1000 tokens * $40 = $40,000");
+    console.log("  ORIGINAL Debt value: $60,000 (doesn't change with price!)");
+    const expectedNewCollateralUSD = 40000;
+    const originalDebtUSD = 60000;
+    const liquidationThreshold = 0.70;
+    const expectedHF = (expectedNewCollateralUSD * liquidationThreshold) / originalDebtUSD;
+    console.log("  HF = ($40,000 * 0.70) / $60,000 =", expectedHF.toFixed(4));
+    console.log("  Status:", expectedHF < 1 ? "LIQUIDATABLE " : "HEALTHY ");
+
+    // setup liquidator
+    console.log("\nSetting up liquidator");
+
+    const liquidator = Keypair.generate();
+
+    const liquidatorAirdrop = await provider.connection.requestAirdrop(
+      liquidator.publicKey,
+      3 * anchor.web3.LAMPORTS_PER_SOL
+    );
+    await provider.connection.confirmTransaction(liquidatorAirdrop);
+
+    const liquidatorDebtAtaAccount = await getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      admin.payer,
+      mintX,
+      liquidator.publicKey
+    );
+    const liquidatorDebtAta = liquidatorDebtAtaAccount.address;
+    const liquidatorCollateralAtaAccount = await getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      admin.payer,
+      mintX,
+      liquidator.publicKey
+    );
+    const liquidatorCollateralAta = liquidatorCollateralAtaAccount.address;
+    // Mint tokens to liquidator
+    await mintTo(
+      provider.connection,
+      admin.payer,
+      mintX,
+      liquidatorDebtAta,
+      admin.payer,
+      borrowAmount.toNumber()
+    );
+
+    console.log(" Liquidator setup complete");
+
+    //  execute liquidation
+    console.log("\n-> Executing liquidation <-");
+
+    const closeFactor = poolBefore.closeFactorBps;
+    const maxRepay = Math.floor(
+      (borrowerPoolPositionBefore.borrowedAmount.toNumber() * closeFactor) / 10000
+    );
+    const repayAmount = new BN(Math.min(maxRepay, borrowAmount.toNumber()));
+
+    console.log("  Close factor:", closeFactor, "bps");
+    console.log("  Max repayable (close factor):", maxRepay);
+    console.log("  Repay amount:", repayAmount.toString());
+
+
+    const liquidatorAtaBefore = await getAccount(provider.connection, liquidatorDebtAta);
+
+    await program.methods
+      .liquidate(repayAmount)
+      .accounts({
+        liquidator: liquidator.publicKey,
+        borrower: borrower.publicKey,
+        debtMint: mintX,
+        debtPool: poolPda,
+        config: configPda,
+        borrowerDebtPosition: borrowerPoolPosition,
+        borrowerPosition: borrowerPosition,
+        debtPoolVault: vaultAta,
+        liquidatorDebtAta: liquidatorDebtAta,
+        collateralMint: mintX,
+        collateralPool: poolPda,
+        borrowerCollateralPosition: borrowerPoolPosition,
+        collateralPoolVault: vaultAta,
+        liquidatorCollateralAta: liquidatorCollateralAta,
+        debtOracle: mockOracle,
+        collateralOracle: mockOracle,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([liquidator])
+      .rpc();
+
+    console.log(" Liquidation executed!");
+
+    // verify results
+    const liquidatorAtaAfter = await getAccount(provider.connection, liquidatorDebtAta);
+
+    // calculate net change (collateral received - debt paid)
+    const netTokenChange = BigInt(liquidatorAtaAfter.amount.toString()) -
+      BigInt(liquidatorAtaBefore.amount.toString());
+
+    console.log("\n--- Liquidation Results ---");
+    console.log("  Liquidator balance before:", liquidatorAtaBefore.amount.toString());
+    console.log("  Liquidator balance after:", liquidatorAtaAfter.amount.toString());
+    console.log("  Net token change:", netTokenChange.toString());
+
+    // calculate expected values
+    const repayTokens = repayAmount.toNumber();
+    const repayValueUSD = (repayTokens * 40) / 1_000_000; // at $40 per token
+    const seizeValueUSD = repayValueUSD * 1.05; // with 5% bonus
+    const expectedSeizeTokens = Math.floor((seizeValueUSD * 1_000_000) / 40);
+    const expectedNetProfit = expectedSeizeTokens - repayTokens;
+
+    console.log("\n--- Expected vs Actual ---");
+    console.log("  Repay amount:", repayTokens);
+    console.log("  Expected seize amount:", expectedSeizeTokens);
+    console.log("  Expected net profit:", expectedNetProfit);
+    console.log("  Actual net change:", netTokenChange.toString());
+
+    // verify liquidator profited
+    assert.ok(netTokenChange > 0n, "Liquidator should have net positive tokens");
+    assert.ok(
+      Math.abs(Number(netTokenChange) - expectedNetProfit) <= 1,
+      "Net change should match expected profit (with rounding tolerance)"
+    );
+
+    console.log("\n All liquidation checks passed!!");
   });
 });

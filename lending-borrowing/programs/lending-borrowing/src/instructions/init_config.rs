@@ -57,3 +57,36 @@ impl<'info> InitConfig<'info> {
         Ok(())
     }
 }
+
+#[cfg(feature = "test-mode")]
+#[derive(Accounts)]
+pub struct UpdateMockOracle<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        seeds= [b"mock-oracle", config.key().as_ref()],
+        bump= mock_oracle.bump,
+    )]
+    pub mock_oracle: Account<'info, MockOracle>,
+    #[account(
+        seeds=[b"config", admin.key().as_ref()],
+        bump= config.bump,
+    )]
+    pub config: Account<'info, Config>,
+}
+
+#[cfg(feature = "test-mode")]
+impl<'info> UpdateMockOracle<'info> {
+    pub fn update_mock_oracle(&mut self, new_price: i64, new_expo: i32) -> Result<()> {
+        self.mock_oracle.price = new_price;
+        self.mock_oracle.expo = new_expo;
+        self.mock_oracle.publish_time = Clock::get()?.unix_timestamp;
+        msg!(
+            "Mock oracle updated: price={}, expo={}",
+            new_price,
+            new_expo
+        );
+        Ok(())
+    }
+}
