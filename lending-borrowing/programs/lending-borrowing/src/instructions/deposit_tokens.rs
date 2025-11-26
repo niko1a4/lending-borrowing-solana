@@ -91,15 +91,12 @@ impl<'info> DepositTokens<'info> {
             ),
             amount,
         )?;
-
-        // Calculate mint amount
-        let mint_amount = if self.pool.total_dtoken_supplied == 0 || self.pool.total_liquidity == 0
-        {
-            amount
-        } else {
-            ((amount as u128) * (self.pool.total_dtoken_supplied as u128)
-                / (self.pool.total_liquidity as u128)) as u64
-        };
+        //calculate mint amount
+        let mint_amount = calculate_dtoken_mint_amount(
+            amount,
+            self.pool.total_liquidity,
+            self.pool.total_dtoken_supplied,
+        )?;
 
         // Mint dtokens
         let config_key = self.config.key();

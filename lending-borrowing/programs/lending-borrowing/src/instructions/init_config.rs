@@ -28,11 +28,6 @@ pub struct InitConfig<'info> {
 
 impl<'info> InitConfig<'info> {
     pub fn init_config(&mut self, bumps: &InitConfigBumps) -> Result<()> {
-        #[cfg(feature = "test-mode")]
-        msg!("TEST MODE IS ACTIVE");
-
-        #[cfg(not(feature = "test-mode"))]
-        msg!("TEST MODE IS INACTIVE");
         self.config.set_inner(Config {
             admin: self.initializer.key(),
             fee_authority: self.initializer.key(),

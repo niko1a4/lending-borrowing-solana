@@ -73,16 +73,6 @@ pub mod lending_borrowing {
         )?;
         Ok(())
     }
-
-    pub fn deposit(ctx: Context<DepositTokens>, amount: u64) -> Result<()> {
-        ctx.accounts.deposit_tokens(amount)?;
-        Ok(())
-    }
-    pub fn update_position(ctx: Context<UpdateDepositPosition>, amount: u64) -> Result<()> {
-        ctx.accounts.update_position(amount)?;
-        Ok(())
-    }
-
     pub fn borrow(ctx: Context<Borrow>, amount: u64) -> Result<()> {
         ctx.accounts.borrow(amount)?;
         Ok(())
