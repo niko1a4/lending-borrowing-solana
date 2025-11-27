@@ -2,7 +2,7 @@ import { AnchorProvider, Program, Idl } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
 import type { AnchorWallet } from "@solana/wallet-adapter-react";
 import idl from "../idl/lending_borrowing.json";
-import { PROGRAM_ID, NETWORK } from "./constants";
+import { PROGRAM_ID, NETWORK, ADMIN_PUBKEY } from "./constants";
 import { Buffer } from "buffer";
 
 export const getProgram = (wallet: AnchorWallet | undefined) => {
@@ -25,8 +25,9 @@ export const getProgram = (wallet: AnchorWallet | undefined) => {
 
 // Helper to derive PDA addresses
 export const getPDAs = (mint: PublicKey) => {
+    const config = getConfigPDA();
     const [pool] = PublicKey.findProgramAddressSync(
-        [Buffer.from("pool"), mint.toBuffer()],
+        [Buffer.from("pool"), config.toBuffer(), mint.toBuffer()],
         PROGRAM_ID
     );
 
@@ -44,8 +45,9 @@ export const getPDAs = (mint: PublicKey) => {
 };
 
 export const getConfigPDA = () => {
+    const adminPubkey = new PublicKey(ADMIN_PUBKEY);
     const [config] = PublicKey.findProgramAddressSync(
-        [Buffer.from("config")],
+        [Buffer.from("config"), adminPubkey.toBuffer()],
         PROGRAM_ID
     );
     return config;

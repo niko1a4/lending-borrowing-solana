@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, Logger } from "@nestjs/common";
 import { AnchorProvider, Program, Idl, setProvider } from "@coral-xyz/anchor";
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import idl from "../../../lending-borrowing/target/idl/lending_borrowing.json";
 import { EventProcessorService } from "./event-processor.service";
 
@@ -12,10 +12,11 @@ export class SolanaListenerService implements OnModuleInit {
     constructor(private readonly eventProcessor: EventProcessorService) { }
 
     async onModuleInit() {
-        const provider = AnchorProvider.env();
-        setProvider(provider);
+        const rpcUrl = process.env.ANCHOR_PROVIDER_URL || 'https://api.devnet.solana.com';
+        const connection = new Connection(rpcUrl, 'confirmed');
+        const provider = new AnchorProvider(connection, {} as any, { commitment: 'confirmed' });
 
-        const programId = new PublicKey((idl as any).metadata.address);
+        const programId = new PublicKey(process.env.PROGRAM_ID!);
         this.program = new Program(idl as Idl, provider);
 
         this.logger.log(`Listening for LendingBorrowing events on ${programId.toBase58()}...`);

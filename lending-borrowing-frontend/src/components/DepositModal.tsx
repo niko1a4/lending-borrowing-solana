@@ -3,7 +3,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { useProgram } from "../hooks/useProgram";
 import { getPDAs, getUserPositionPDA } from "../utils/anchor-client";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
 
 interface DepositModalProps {
     poolAddress: string;
@@ -28,10 +28,13 @@ export const DepositModal = ({ poolAddress, mintAddress, onClose, onSuccess }: D
 
             const mint = new PublicKey(mintAddress);
             const pool = new PublicKey(poolAddress);
-            const { vault, dtokenMint } = getPDAs(mint);
 
-            const userTokenAccount = await getAssociatedTokenAddress(mint, publicKey);
-            const userDtokenAccount = await getAssociatedTokenAddress(dtokenMint, publicKey);
+            const poolAccount = await (program.account as any).pool.fetch(pool);
+            const dtokenMint = poolAccount.mintDtoken;
+            const vault = poolAccount.vault;
+            const config = poolAccount.config;
+            const userTokenAta = await getAssociatedTokenAddress(mint, publicKey);
+            const userDtokenAta = await getAssociatedTokenAddress(dtokenMint, publicKey);
             const userPosition = getUserPositionPDA(publicKey, pool);
 
             const depositAmount = Math.floor(parseFloat(amount) * Math.pow(10, 9)); // Assuming 9 decimals
@@ -40,15 +43,18 @@ export const DepositModal = ({ poolAddress, mintAddress, onClose, onSuccess }: D
             console.log("Step 1: Calling deposit_tokens...");
             const tx1 = await program.methods
                 .depositTokens(depositAmount)
-                .accounts({
+                .accountsPartial({
                     user: publicKey,
-                    pool: pool,
-                    mint: mint,
-                    vault: vault,
-                    userTokenAccount: userTokenAccount,
+                    underlyingMint: mint,
                     dtokenMint: dtokenMint,
-                    userDtokenAccount: userDtokenAccount,
+                    config: config,
+                    pool: pool,
+                    vault: vault,
+                    userAta: userTokenAta,
+                    userDtokenAccount: userDtokenAta,
+                    userPoolPosition: userPosition,
                     tokenProgram: TOKEN_PROGRAM_ID,
+                    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
                 })
                 .rpc();
 
@@ -58,7 +64,7 @@ export const DepositModal = ({ poolAddress, mintAddress, onClose, onSuccess }: D
             console.log("Step 2: Calling update_deposit_position...");
             const tx2 = await program.methods
                 .updateDepositPosition(depositAmount)
-                .accounts({
+                .accountsPartial({
                     user: publicKey,
                     pool: pool,
                     userPosition: userPosition,

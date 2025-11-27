@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { EventsService } from "../events/events.service";
 import { UserPoolPositionsService } from "../user-pool-positions/user-pool-positions.service";
 import { PoolsService } from "../pools/pools.service";
+import { BN } from "@coral-xyz/anchor";
 
 @Injectable()
 export class EventProcessorService {
@@ -13,11 +14,21 @@ export class EventProcessorService {
         private readonly poolsService: PoolsService,
     ) { }
 
+    private parseTimestamp(timestamp: any): number {
+        if (!timestamp) return Date.now();
+        if (timestamp instanceof BN) {
+            return timestamp.toNumber();
+        }
+        if (typeof timestamp === 'number') {
+            return timestamp;
+        }
+        return Date.now();
+    }
     async process(event: any, signature: string) {
         try {
             const eventName = event.name;
             const data = event.data;
-
+            const parsedTimestamp = this.parseTimestamp(data.timestamp);
 
             await this.eventsService.saveEvent({
                 eventType: eventName,
@@ -26,7 +37,7 @@ export class EventProcessorService {
                 mint: data.mint ? data.mint.toBase58() : null,
                 data: data,
                 signature,
-                timestamp: data.timestamp ?? Date.now(),
+                timestamp: parsedTimestamp,
             });
 
 
@@ -35,7 +46,7 @@ export class EventProcessorService {
                     await this.poolsService.savePool({
                         pool: data.pool.toBase58(),
                         mint: data.mint.toBase58(),
-                        timestamp: data.timestamp,
+                        timestamp: parsedTimestamp,
                     });
                     break;
 

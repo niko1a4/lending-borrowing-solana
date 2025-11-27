@@ -6,12 +6,17 @@ import { UserPoolPositionsModule } from './user-pool-positions/user-pool-positio
 import { EventsModule } from './events/events.module';
 import { IndexerModule } from './indexer/indexer.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+    }),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: process.env.DB_HOST ?? 'postgres',
+      host: 'localhost',
       port: Number(process.env.DB_PORT) ?? 5432,
       username: process.env.DB_USERNAME ?? 'postgres',
       password: process.env.DB_PASSWORD ?? 'lending-borrowing',

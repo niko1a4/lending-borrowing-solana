@@ -9,11 +9,14 @@ skip-lint = false
 [programs.localnet]
 lending_borrowing = "4A2DJsPrMxb1EChuCqyUAvWYUt9xHHFHSHsjW9pdvSHV"
 
+[programs.devnet]
+lending_borrowing = "4A2DJsPrMxb1EChuCqyUAvWYUt9xHHFHSHsjW9pdvSHV"
+
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
