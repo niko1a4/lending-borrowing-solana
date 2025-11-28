@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { useProgram } from "../hooks/useProgram";
-import { getPDAs, getUserPositionPDA, getConfigPDA } from "../utils/anchor-client";
+import { getPDAs, getUserPositionPDA, getConfigPDA, getUserPoolPositionPDA } from "../utils/anchor-client";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
-
+import { BN } from "@coral-xyz/anchor";
 interface BorrowModalProps {
     poolAddress: string;
     mintAddress: string;
@@ -28,25 +28,29 @@ export const BorrowModal = ({ poolAddress, mintAddress, onClose, onSuccess }: Bo
 
             const mint = new PublicKey(mintAddress);
             const pool = new PublicKey(poolAddress);
-            const { vault } = getPDAs(mint);
-            const config = getConfigPDA();
-
-            const userTokenAccount = await getAssociatedTokenAddress(mint, publicKey);
-            const userPosition = getUserPositionPDA(publicKey, pool);
-
-            const borrowAmount = Math.floor(parseFloat(amount) * Math.pow(10, 9));
+            const poolAccount = await (program.account as any).pool.fetch(pool);
+            const vault = new PublicKey(poolAccount.vault);
+            const config = new PublicKey(poolAccount.config);
+            const oracle = new PublicKey(poolAccount.oracle);
+            const userAta = await getAssociatedTokenAddress(mint, publicKey);
+            const userPoolPosition = getUserPoolPositionPDA(publicKey, pool);
+            const userPosition = getUserPositionPDA(publicKey);
+            const borrowAmount = new BN(Math.floor(parseFloat(amount) * Math.pow(10, 9)));
 
             const tx = await program.methods
                 .borrow(borrowAmount)
                 .accounts({
                     user: publicKey,
-                    config: config,
+                    underlyingMint: mint,
                     pool: pool,
-                    mint: mint,
-                    vault: vault,
-                    userTokenAccount: userTokenAccount,
+                    config: config,
+                    userAta: userAta,
+                    userPoolPosition: userPoolPosition,
                     userPosition: userPosition,
+                    vault: vault,
+                    oracle: oracle,
                     tokenProgram: TOKEN_PROGRAM_ID,
+                    systemProgram: SystemProgram.programId,
                 })
                 .rpc();
 

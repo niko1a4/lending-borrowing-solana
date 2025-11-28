@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import { UserPoolPositionEntity } from './entities/user-pool-position.entity';
+import { timestamp } from 'rxjs';
+import { time } from 'node:console';
 
 @Injectable()
 export class UserPoolPositionsService {
@@ -38,10 +40,13 @@ export class UserPoolPositionsService {
         const user = event.user.toBase58();
         const pool = event.pool.toBase58();
         const mint = event.mint.toBase58();
-        const amount = Number(event.deposit_amount);
+        const depositAmount = event.depositAmount ?? event.deposit_amount;
+
+        const amount = depositAmount.toNumber ? depositAmount.toNumber() : Number(depositAmount);
+
+        const timestamp = event.timestamp.toNumber ? event.timestamp.toNumber() : Number(event.timestamp);
 
         let pos = await this.uppRepo.findOne({ where: { user, pool } });
-
         if (!pos) {
             pos = this.uppRepo.create({
                 user,
@@ -49,11 +54,11 @@ export class UserPoolPositionsService {
                 mint,
                 depositedAmount: amount,
                 borrowedAmount: 0,
-                lastUpdated: event.timestamp,
+                lastUpdated: timestamp,
             });
         } else {
-            pos.depositedAmount += amount;
-            pos.lastUpdated = event.timestamp;
+            pos.depositedAmount = Number(pos.depositedAmount) + amount;
+            pos.lastUpdated = timestamp;
         }
 
         return await this.uppRepo.save(pos);
@@ -64,16 +69,18 @@ export class UserPoolPositionsService {
         const user = event.user.toBase58();
         const pool = event.pool.toBase58();
         const mint = event.mint.toBase58();
-        const amount = Number(event.amount);
+        const withdrawAmount = event.amount;
+        const amount = withdrawAmount.toNumber ? withdrawAmount.toNumber() : Number(withdrawAmount);
+        const timestamp = event.timestamp.toNumber ? event.timestamp.toNumber() : Number(event.timestamp);
 
         let pos = await this.uppRepo.findOne({ where: { user, pool } });
 
         if (!pos) return;
 
-        pos.depositedAmount -= amount;
+        pos.depositedAmount = Number(pos.depositedAmount) - amount;
         if (pos.depositedAmount < 0) pos.depositedAmount = 0;
 
-        pos.lastUpdated = event.timestamp;
+        pos.lastUpdated = timestamp;
 
         return await this.uppRepo.save(pos);
     }
@@ -83,7 +90,9 @@ export class UserPoolPositionsService {
         const user = event.user.toBase58();
         const pool = event.pool.toBase58();
         const mint = event.mint.toBase58();
-        const amount = Number(event.amount);
+        const borrowAmount = event.amount;
+        const amount = borrowAmount.toNumber ? borrowAmount.toNumber() : Number(borrowAmount);
+        const timestamp = event.timestamp.toNumber ? event.timestamp.toNumber() : Number(event.timestamp);
 
         let pos = await this.uppRepo.findOne({ where: { user, pool } });
 
@@ -94,11 +103,11 @@ export class UserPoolPositionsService {
                 mint,
                 depositedAmount: 0,
                 borrowedAmount: amount,
-                lastUpdated: event.timestamp,
+                lastUpdated: timestamp,
             });
         } else {
-            pos.borrowedAmount += amount;
-            pos.lastUpdated = event.timestamp;
+            pos.borrowedAmount = Number(pos.borrowedAmount) + amount;
+            pos.lastUpdated = timestamp;
         }
 
         return await this.uppRepo.save(pos);
@@ -109,16 +118,18 @@ export class UserPoolPositionsService {
         const user = event.user.toBase58();
         const pool = event.pool.toBase58();
         const mint = event.mint.toBase58();
-        const amount = Number(event.amount);
+        const repayAmount = event.amount;
+        const amount = repayAmount.toNumber ? repayAmount.toNumber() : Number(repayAmount);
+        const timestamp = event.timestamp.toNumber ? event.timestamp.toNumber() : Number(event.timestamp);
 
         let pos = await this.uppRepo.findOne({ where: { user, pool } });
 
         if (!pos) return;
 
-        pos.borrowedAmount -= amount;
+        pos.borrowedAmount = Number(pos.borrowedAmount) - amount;
         if (pos.borrowedAmount < 0) pos.borrowedAmount = 0;
 
-        pos.lastUpdated = event.timestamp;
+        pos.lastUpdated = timestamp;
 
         return await this.uppRepo.save(pos);
     }
@@ -128,22 +139,28 @@ export class UserPoolPositionsService {
         const borrower = event.borrower.toBase58();
         const debtPool = event.debt_pool.toBase58();
         const collateralPool = event.collateral_pool.toBase58();
-        const debtRepaid = Number(event.debt_repaid);
-        const collateralSeized = Number(event.collater_seized);
+
+        const debtRepaidBN = event.debtRepaid;
+        const debtRepaid = debtRepaidBN.toNumber ? debtRepaidBN.toNumber() : Number(debtRepaidBN);
+
+        const collateralSeizedBN = event.collateralSeized;
+        const collateralSeized = collateralSeizedBN.toNumber ? collateralSeizedBN.toNumber() : Number(collateralSeizedBN);
+
+        const timestamp = event.timestamp.toNumber ? event.timestamp.toNumber() : Number(event.timestamp);
 
         let debtPos = await this.uppRepo.findOne({ where: { user: borrower, pool: debtPool } });
         if (debtPos) {
-            debtPos.borrowedAmount -= debtRepaid;
+            debtPos.borrowedAmount = Number(debtPos.borrowedAmount) - debtRepaid;
             if (debtPos.borrowedAmount < 0) debtPos.borrowedAmount = 0;
-            debtPos.lastUpdated = Date.now();
+            debtPos.lastUpdated = timestamp;
             await this.uppRepo.save(debtPos);
         }
 
         let collateralPos = await this.uppRepo.findOne({ where: { user: borrower, pool: collateralPool } });
         if (collateralPos) {
-            collateralPos.depositedAmount -= collateralSeized;
+            collateralPos.depositedAmount = Number(collateralPos.depositedAmount) - collateralSeized;
             if (collateralPos.depositedAmount < 0) collateralPos.depositedAmount = 0;
-            collateralPos.lastUpdated = Date.now();
+            collateralPos.lastUpdated = timestamp;
             await this.uppRepo.save(collateralPos);
         }
     }

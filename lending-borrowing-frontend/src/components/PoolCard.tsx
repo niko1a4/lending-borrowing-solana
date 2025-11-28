@@ -31,7 +31,7 @@ export const PoolCard = ({ pool, onActionComplete }: PoolCardProps) => {
                     </div>
                     <div className="info-row">
                         <span>Created:</span>
-                        <span>{new Date(pool.timestamp).toLocaleDateString()}</span>
+                        <span>{new Date(pool.timestamp * 1000).toLocaleDateString()}</span>
                     </div>
                 </div>
 

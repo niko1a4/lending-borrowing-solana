@@ -196,11 +196,12 @@ pub struct UpdateDepositPosition<'info> {
 impl<'info> UpdateDepositPosition<'info> {
     #[cfg(not(feature = "test-mode"))]
     pub fn update_position(&mut self, amount: u64) -> Result<()> {
-        msg!(">>> NON-TEST MODE UPDATE_POSITION (PYTH VERSION) <<<");
         // Get oracle price from Pyth
-        let p = self
-            .oracle
-            .get_price_no_older_than(&Clock::get()?, 30, &self.pool.feed_id)?;
+        let p = self.oracle.get_price_no_older_than(
+            &Clock::get()?,
+            i64::MAX as u64,
+            &self.pool.feed_id,
+        )?;
         let price_usd_1e6 = normalize_pyth_price_to_usd_1e6(p.price, p.exponent)?;
 
         self.update_position_internal(amount, price_usd_1e6)
@@ -209,7 +210,6 @@ impl<'info> UpdateDepositPosition<'info> {
     // Test mode implementation
     #[cfg(feature = "test-mode")]
     pub fn update_position(&mut self, amount: u64) -> Result<()> {
-        msg!(">>> TEST MODE UPDATE_POSITION (MOCK ORACLE VERSION) <<<");
         // Get oracle price from MockOracle
         let current_time = Clock::get()?.unix_timestamp;
         let time_diff = current_time - self.oracle.publish_time;

@@ -81,7 +81,7 @@ impl<'info> Borrow<'info> {
         #[cfg(not(feature="test-mode"))]
          let price_usd_1e6 = {
             let price_update = &self.oracle;
-            let maximum_age: u64 = 30;
+            let maximum_age: u64 = i64::MAX as u64;
             let feed_id: [u8; 32] = self.pool.feed_id;
             let price = price_update.get_price_no_older_than(&Clock::get()?, maximum_age, &feed_id)?;
             normalize_pyth_price_to_usd_1e6(price.price, price.exponent)?

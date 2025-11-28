@@ -69,9 +69,6 @@ export class EventProcessorService {
                 case "LiquidateEvent":
                     await this.uppService.updateLiquidate(data);
                     break;
-
-                default:
-                    this.logger.debug(`Unhandled event type: ${eventName}`);
             }
 
             this.logger.log(`Processed ${eventName} (${signature})`);

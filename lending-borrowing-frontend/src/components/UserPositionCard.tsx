@@ -31,7 +31,7 @@ export const UserPositionCard = ({ position }: UserPositionCardProps) => {
                 </div>
                 <div className="info-row">
                     <span>Last Updated:</span>
-                    <span>{new Date(position.lastUpdated).toLocaleString()}</span>
+                    <span>{new Date(position.lastUpdated * 1000).toLocaleString()}</span>
                 </div>
             </div>
         </div>

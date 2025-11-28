@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { useProgram } from "../hooks/useProgram";
-import { getPDAs, getUserPositionPDA } from "../utils/anchor-client";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
-
+import { getPDAs, getUserPoolPositionPDA, getUserPositionPDA } from "../utils/anchor-client";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { BN } from "@coral-xyz/anchor";
 interface WithdrawModalProps {
     poolAddress: string;
     mintAddress: string;
@@ -28,26 +28,33 @@ export const WithdrawModal = ({ poolAddress, mintAddress, onClose, onSuccess }: 
 
             const mint = new PublicKey(mintAddress);
             const pool = new PublicKey(poolAddress);
-            const { vault, dtokenMint } = getPDAs(mint);
-
-            const userTokenAccount = await getAssociatedTokenAddress(mint, publicKey);
-            const userDtokenAccount = await getAssociatedTokenAddress(dtokenMint, publicKey);
-            const userPosition = getUserPositionPDA(publicKey, pool);
-
-            const amount = Math.floor(parseFloat(dtokenAmount) * Math.pow(10, 9));
-
+            const poolAccount = await (program.account as any).pool.fetch(pool);
+            const dtokenMint = new PublicKey(poolAccount.mintDtoken);
+            const vault = new PublicKey(poolAccount.vault);
+            const config = new PublicKey(poolAccount.config);
+            const oracle = new PublicKey(poolAccount.oracle);
+            const userTokenAta = await getAssociatedTokenAddress(mint, publicKey);
+            const userDtokenAta = await getAssociatedTokenAddress(dtokenMint, publicKey);
+            const userPoolPosition = getUserPoolPositionPDA(publicKey, pool);
+            const userPosition = getUserPositionPDA(publicKey);
+            const dtokenAmountBN = new BN(Math.floor(parseFloat(dtokenAmount) * Math.pow(10, 9)));
             const tx = await program.methods
-                .withdraw(amount)
+                .withdraw(dtokenAmountBN)
                 .accounts({
                     user: publicKey,
-                    pool: pool,
                     mint: mint,
+                    mintDtoken: dtokenMint,
+                    pool: pool,
+                    config: config,
                     vault: vault,
-                    userTokenAccount: userTokenAccount,
-                    dtokenMint: dtokenMint,
-                    userDtokenAccount: userDtokenAccount,
+                    userDtokenAta: userDtokenAta,
+                    userTokenAta: userTokenAta,
+                    userPoolPosition: userPoolPosition,
                     userPosition: userPosition,
+                    oracle: oracle,
                     tokenProgram: TOKEN_PROGRAM_ID,
+                    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+                    systemProgram: SystemProgram.programId,
                 })
                 .rpc();
 

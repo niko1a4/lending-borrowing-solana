@@ -53,10 +53,17 @@ export const getConfigPDA = () => {
     return config;
 };
 
-export const getUserPositionPDA = (user: PublicKey, pool: PublicKey) => {
+export const getUserPositionPDA = (user: PublicKey) => {
     const [userPosition] = PublicKey.findProgramAddressSync(
-        [Buffer.from("user_position"), user.toBuffer(), pool.toBuffer()],
+        [Buffer.from("user-position"), user.toBuffer()],
         PROGRAM_ID
     );
     return userPosition;
 };
+export const getUserPoolPositionPDA = (user: PublicKey, pool: PublicKey) => {
+    const [userPoolPosition] = PublicKey.findProgramAddressSync(
+        [Buffer.from("user-pool-position"), user.toBuffer(), pool.toBuffer()],
+        PROGRAM_ID,
+    );
+    return userPoolPosition;
+}

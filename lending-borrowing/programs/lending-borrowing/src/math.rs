@@ -86,7 +86,7 @@ pub fn calculate_health_factor(
     let hf = collateral
         .checked_mul(threshold)
         .ok_or(Errors::MathOverflow)?
-        .checked_div(borrow.saturating_mul(10_000))
+        .checked_div(borrow)
         .ok_or(Errors::MathOverflow)?;
 
     Ok(hf as u64)
